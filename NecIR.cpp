@@ -9,42 +9,21 @@
 #define TIMER_FLAG    4
 
 // Some macros that will increase readability (order of arguments matters .. GCC will optimize constants)
-#define APPROX(value, constant) (((constant)-len_uncert<=(value)) && ((value)<=(constant)+len_uncert))
-#define APPROX_LONG(value, constant) (((constant)-len_uncert_long<=(value)) && ((value)<=(constant)+len_uncert_long))
+#define APPROX(value, constant) (((constant)-UNCERT<=(value)) && ((value)<=(constant)+UNCERT))
+#define APPROX_LONG(value, constant) (((constant)-UNCERT_LONG<=(value)) && ((value)<=(constant)+UNCERT_LONG))
 #define SET_FLAG(FLAG)  flags |=  (1<<(FLAG))
 #define RST_FLAG(FLAG)  flags &= ~(1<<(FLAG))
 #define IS_FLAG(FLAG)  (flags &   (1<<(FLAG)))
 
 
-// Real values observed at 10kHz start: 100-135, repeat: 109-110
-// Using scaling 25 here, since LPD6803 code works at 25kHz by default (for 50% cpumax) 
-// while IR code expected 10kHz originally:
-// (Not real values, but computed from 10kHz values)
-/*
-#define PAUSE        (25*940/10)  // There seems to be a pause length. This is used mainly for a reset condition.
-#define START        (25*135/10)  // Length of a start  bit: 9+4.5  = 13.5ms
-#define REPEAT       (25*113/10)  // Length of a repeat bit: 9+2.25 = 11.2ms
-#define UNCERT_LONG  (25* 11/10)  // Uncertainty: +-0.15ms for START and REPEAT
-#define ONE          (25* 22/10)  // Length of a logical 1:  2.2ms
-#define ZERO         (25* 11/10)  // Length of a logical 0:  1.1ms
-#define UNCERT       (25*  5/10)  // Uncertainty: +-0.5ms for ONEs and ZEROs
- */
+#define START        (13500)  // Length of a start  bit: 9+4.5  ms = 13.5ms = 13500µs
+//#define REPEAT       (11200)  // Length of a repeat bit: 9+2.25 ms = 11.2ms = 11200µs
+#define REPEAT       (11200)  // Length of a repeat bit: 9+2.25 ms = 11.2ms = 11200µs
+#define ONE          ( 2200)  // Length of a logical 1:    2.2  ms          =  2200µs
+#define ZERO         ( 1100)  // Length of a logical 0:    1.1  ms          =  1100µs
+#define UNCERT       (  500)  // Uncertainty: +-0.5ms for ONEs and ZEROs
+#define UNCERT_LONG  ( 1500)  // Uncertainty: +-0.15ms for START and REPEAT
 
-// Real values observed at 25kHz: start: 100-135, repeat: 109-110
-/*
- 675 280 29 28 27 29 28 27  29 55 57 55 56 57 55 56  57 27 28 29 27 28 29 55  29 55 56 57 55 56 57 27
- 924 280 28 28 28 28 28 28  28 56 56 56 56 56 56 56  56 56 28 28 56 56 28 56  28 28 56 56 28 29 55 28
- 336 29 28 27 29 28 27 29  28 56 55 57 56 55 57 56  55 28 29 27 28 29 27 57  27 57 55 56 45 55 56 28
- */
-#define START        (336)  // Length of a start  bit: 9+4.5  = 13.5ms
-#define REPEAT       (280)  // Length of a repeat bit: 9+2.25 = 11.2ms
-#define ONE          (56)  // Length of a logical 1:  2.2ms
-#define ZERO         (28)  // Length of a logical 0:  1.1ms
-#define UNCERT       (13)  // Uncertainty: +-0.5ms for ONEs and ZEROs
-#define UNCERT_LONG  (25* 11/10)  // Uncertainty: +-0.15ms for START and REPEAT
-
-
-static uint16_t len_start, len_repeat, len_one, len_zero, len_uncert, len_uncert_long;
 
 // a complete signal sequence consisting of pos/neg address and command code (from LSB to MSB)
 typedef struct 
@@ -79,17 +58,10 @@ static volatile uint16_t repetitions = 0;
 static volatile uint16_t errors      = 0;
 
 
-static volatile uint16_t edge_count  = 0;
-
-// pointer to a counter incremented externally by a counter interrupt
-static volatile  uint16_t * counter;
-
+static volatile uint32_t edge_count  = 0;
 
 // forward declaration
 static void necir_interrupt();
-
-// how ofter per seconds the external counter is incremented
-static uint32_t frequency;
 
 #ifdef DEBUG_IRNEC_LENGTHS
 #define DEBUG_LENGTHS_COUNT 36
@@ -97,21 +69,8 @@ volatile uint16_t lengths_buff[DEBUG_LENGTHS_COUNT+1];
 #endif
 
 
-void NecIR::setup(int INT0_pin, volatile uint16_t * cnt, uint32_t freq)
+void NecIR::setup(int INT0_pin)
 {
-	counter = cnt;
-        frequency = freq;      
-        
-        len_start       = freq * START       / 10000;
-        len_repeat      = freq * REPEAT      / 10000;
-        len_one         = freq * ONE         / 10000;
-        len_zero        = freq * ZERO        / 10000;
-        len_uncert      = freq * UNCERT      / 10000;
-        len_uncert_long = freq * UNCERT_LONG / 10000;
-        
-        Serial.println("Length of one  bits: "); Serial.println(len_one);
-        Serial.println("Length of zero bits: "); Serial.println(len_zero);
-  
 #ifdef DEBUG_IRNEC_LENGTHS
 	memset((void*)lengths_buff, 0, sizeof(lengths_buff));
 #endif
@@ -119,6 +78,12 @@ void NecIR::setup(int INT0_pin, volatile uint16_t * cnt, uint32_t freq)
 	// set up pin 2 for interrupt on falling edge
 	pinMode(INT0_pin, INPUT_PULLUP);
 	attachInterrupt(0, necir_interrupt, FALLING);
+}
+
+
+uint32_t NecIR::get_edge_count()
+{
+  return edge_count;
 }
 
 
@@ -148,6 +113,13 @@ uint16_t NecIR::get_errors()
 }
 
 
+uint16_t error_length;
+
+uint16_t NecIR::get_error_length()
+{
+	return error_length;
+}
+
 void NecIR::dump_lengths(void)
 {
 #ifdef DEBUG_IRNEC_LENGTHS
@@ -160,11 +132,11 @@ void NecIR::dump_lengths(void)
 			break;
 		}
 
-                if      (APPROX_LONG(l,len_start))  Serial.print("S");             
-                else if (APPROX_LONG(l,len_repeat)) Serial.print("R");             
-                else if (APPROX(l,len_one))         Serial.print("H");             
-                else if (APPROX(l,len_zero))        Serial.print("L");         
-                else                                Serial.print("E");     
+                if      (APPROX_LONG(l,START))  Serial.print("S");             
+                else if (APPROX_LONG(l,REPEAT)) Serial.print("R");             
+                else if (APPROX(l,ONE))         Serial.print("H");             
+                else if (APPROX(l,ZERO))        Serial.print("L");         
+                else                            Serial.print("E");     
                 
                 Serial.print(":");          
                 Serial.print(l);          
@@ -178,12 +150,14 @@ void NecIR::dump_lengths(void)
 #endif
 }
 
+long last = 0;
 
 static void necir_interrupt()
 {
 	cli();
-	uint16_t length = *counter;
-	*counter  = 0;
+        long now = micros();
+        long length = now-last;
+        last = now;
 	sei();
 
 	// count total number of edges received as a good indicator to check
@@ -210,7 +184,7 @@ static void necir_interrupt()
 	}
 
 	// start bit seen
-	if (APPROX_LONG(length, len_start))
+	if (APPROX_LONG(length, START))
 	{
 		edge_count = 0;
 		buffer.dword = 0;
@@ -230,29 +204,29 @@ static void necir_interrupt()
 	}
 #endif
 
-	if (APPROX_LONG(length, len_repeat))
+	if (APPROX_LONG(length, REPEAT))
 	{
 		SET_FLAG(REPEAT_FLAG);
 		repetitions++;
 		return;
 	}
-	repetitions = 0;
 
 	// TODO: test if optimization works: if (!(edge_count & 32)) // saves 4 bytes of code
 	if (edge_count<32)
 	{
 		buffer.dword = (buffer.dword << 1); // shift one to the left
 
-		if (APPROX(length,len_one))
+		if (APPROX(length, ONE))
 		{
 			buffer.dword = (buffer.dword | 1);
 		}
-		else if (APPROX(length,len_zero))
+		else if (APPROX(length, ZERO))
 		{
 			// leave LSB as is (code has no effect however optmized by gcc anyway so leave for clarity)
 		}
 		else
 		{
+                        error_length = length;
 			errors++;
 		}
 
@@ -273,9 +247,11 @@ static void necir_interrupt()
 			}
 
 			RST_FLAG(TIMER_FLAG);
+                        repetitions = 0;
 		}
 	}
 }
+
 
 
 
