@@ -80,12 +80,12 @@ void NecIR::setup(int INT0_pin)
 	attachInterrupt(0, necir_interrupt, FALLING);
 }
 
-
+#ifdef DEBUG_IRNEC_LENGTHS
 uint32_t NecIR::get_edge_count()
 {
   return edge_count;
 }
-
+#endif
 
 uint8_t NecIR::get_command(uint16_t * rep)
 {
@@ -120,6 +120,8 @@ uint16_t NecIR::get_error_length()
 	return error_length;
 }
 
+
+#ifdef DEBUG_IRNEC_LENGTHS
 void NecIR::dump_lengths(void)
 {
 #ifdef DEBUG_IRNEC_LENGTHS
@@ -149,8 +151,9 @@ void NecIR::dump_lengths(void)
 	}
 #endif
 }
+#endif
 
-long last = 0;
+static long last = 0;
 
 static void necir_interrupt()
 {
