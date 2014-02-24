@@ -1,10 +1,17 @@
+// Board: Aduino Pro Mini 5V 16 MHz with AtMega328
+
+#ifndef OSX
+  #ifndef __AVR_ATmega328P__
+    #error WRONG TARGET BOARD. EXPECTED __AVR_ATmega328P__
+  #endif
+#endif
 
 //#define STRIP_TYPE_6803
 #define STRIP_TYPE_RGB
 
 #define WITH_HELP
 #define WITH_UART_VALUES_OUTPUT
-#define WITH_UART_PWM_OUTUT
+//#define WITH_UART_PWM_OUTUT
 
 /*********************************************************************/
 
@@ -12,7 +19,7 @@
 #error Only one strip type may be defined
 #endif
 
-#include <EEPROM.h>
+#include <eEEPROM.h>
 
 #ifdef STRIP_TYPE_6803
   #include <FastSPI_LED.h>
@@ -31,8 +38,14 @@ struct CRGB *leds;
 
 #define SIGN(A)  ((A)<0 ? -s1 : 1  )
 #define ABS(A)   ((A)<0 ? (-(A)) : (A))
-#define MAX(A,B) ((A)>(B) ? (A) : (B))    
-#define MIN(A,B) ((A)<(B) ? (A) : (B))    
+
+#ifndef MAX
+#define MAX(A,B) ((A)>(B) ? (A) : (B))
+#endif
+
+#ifndef MIN
+#define MIN(A,B) ((A)<(B) ? (A) : (B))
+#endif
 
 // modes of operation
 #define MODE_MIN         0
@@ -102,6 +115,8 @@ int8_t * src = ripples1;
 int8_t * dst = ripples2;
 
 
+struct CRGB * control;
+
 typedef struct preset_s
 {
 	uint8_t mode; // the mode of operation: WATER, RAINBOW etc.
@@ -131,9 +146,9 @@ uint32_t presetLoadTime  = 0;
 uint32_t lastChangeSaveTime = 0;
 
 
-static NecIR necIR;
+static NecIR necIR(PIN_IR_INT0);
 
-// all current values that control visialization and therefore must be saved in EEprom
+// all current values that control visualization and therefore must be saved in EEprom
 preset_s preset;
 
 uint16_t fadeCount     = 0;
@@ -148,9 +163,18 @@ char    * inputEnd  = inputBuffer+sizeof(inputBuffer)-1;
 boolean   stringComplete = false;  // whether the string is complete
 
 // debug mode. 0=none, 1=normal, 2=verbose
-uint8_t D = 1;
+uint8_t D = 2;
 
 uint32_t old_pwm = 0;
+
+
+/*********** prototypes ***********/
+void serialEvent();
+inline void toggle_pause();
+void stripClear(uint8_t r, uint8_t g, uint8_t b);
+void presetLoad(int n, struct preset_s * preset);
+void sendCurrent();
+/******* end of prototypes ********/
 
 
 void initDefaults(struct preset_s * preset)
@@ -218,7 +242,7 @@ void visualizeWater()
 
 	for (int x = 0; x < WIDTH; x++)
 	{
-                checkSerialData();
+		serialEvent();
 		int16_t rippleScaled = (int16_t) ((preset.amplitude * dst[x]) >> 8);
 
 		switch (preset.mode)
@@ -332,7 +356,7 @@ void visualize()
 
 	for (short x = 0; x < WIDTH; x++)
 	{
-                checkSerialData();
+		serialEvent();
 		short rippleScaled = (short) ((preset.amplitude * dst[x]) >> 8);
 
 		switch (preset.mode)
@@ -415,7 +439,7 @@ void next()
 
 	for (int i=1; i<(WIDTH-1); i++)
 	{
-                checkSerialData();
+		serialEvent();
 		if (dist_count[i]>0)
 		{
 			int d  = (DIST_RAMP_UP_COUNT-dist_count[i]) * dist_height[i] / DIST_RAMP_UP_COUNT;
@@ -436,12 +460,15 @@ void disturb(int force)
 		return;
 	}
 
-	int x       = random(WIDTH); // pixel position where disturbance starts 	
+	int x       = random(WIDTH); // pixel position where disturbance starts
+
 	int h_total = random(preset.disturbStrength<<2) - preset.disturbStrength; // 2*R(A)-A yields values -A,...,A
 	if (true)
 	{	
 		int width = random(preset.disturbWidth)<<1; // pixel influenced: 1,...,6
-		int h_pp  = h_total/width;
+		int h_pp  = h_total;
+		if (width>0) h_pp/=width;
+
 		for (int i=0; i<width; i++)
 		{
 			dist_height[(x+i)%WIDTH] += h_pp;
@@ -475,7 +502,7 @@ void swap()
 
 /************** IR command handling from here on *******************/
 
-inline void pause() 
+inline void toggle_pause()
 {
 	paused = paused ? false : true;
         Serial.println(paused ? "I:PAUSE=1" : "I:PAUSE=0");
@@ -559,11 +586,11 @@ void indicateFeedbackCmd()
 {
 	for (byte n=0; n<6; n++)
 	{
-            checkSerialData();
+		serialEvent();
 	    stripClear((short)255,(short)255,(short)255);
 	    delay(20);
 	    
-            checkSerialData();
+	    serialEvent();
 	    stripClear((short)255,(short)0,(short)0);
 	    delay(20);
 	}
@@ -600,7 +627,7 @@ boolean presetSave(int n)
 		//if (D) { Serial.print("D:EE_WR(@"); Serial.print(addr,16); Serial.print(","); Serial.print(len); Serial.println(")"); } 
 		for (int i=0; i<len; i++)
 		{
-			EEPROM.write(addr, *b);
+			eEEPROM.write(addr, *b);
 			b++;
 			addr++;    
 		}
@@ -620,7 +647,7 @@ void presetLoad(int n, struct preset_s * preset)
 	//if (D)>1) { erial.print("D:EE_READ(@"); Serial.print(addr,16); Serial.print(","); Serial.print(len); Serial.println(")"); } 
 	for (int i=0; i<len; i++)
 	{
-		*b = EEPROM.read(addr);
+		*b = eEEPROM.read(addr);
 		b++;
 		addr++;    
 	}
@@ -798,7 +825,7 @@ void handleIRCommand(int code, int repeat)
 	case CMD_PAUSE    : 
 		if (repeat<6) 
                 {
-			pause(); 
+			toggle_pause();
                 }
 		else 
                 {
@@ -939,7 +966,7 @@ void sendModeName(int mode)
           case MODE_RAINFLOW2 : Serial.print("RainFlowShort"); break; // like RAINBOW3, ripple data used as color displacement
 #endif          
           case MODE_RAINFLOW  : Serial.print("RainFlow");       break; // like RAINBOW2, ripple data used as color displacement
-          case MODE_CONST     : Serial.print("Constant");       break; // constant color only, but brightness may be set by the user 
+          case MODE_CONST     : Serial.print("Constant");       break; // constant color only, but brightness may be set by the user
           default             : Serial.print("INVAL");          break;
         }
 }
@@ -1001,7 +1028,7 @@ void setup()
 {                
 	// initialize the digital pin as an output.
 	Serial.begin(9600);        // set up Serial library at 9600 bps
-	Serial.println("V:WaterStrip:1.0");  // prints hello with ending line break 
+	Serial.println("V:WaterStrip:1.0");  // prints verison with ending line break 
     
 	// try to load saved presets. if there are none, fall back to defaults
 	presetLoad(0, &preset);
@@ -1018,7 +1045,9 @@ void setup()
         leds = (struct CRGB*)FastSPI_LED.getRGBData();
 #endif       
 #ifdef STRIP_TYPE_RGB        
-        leds = (struct CRGB*)malloc(WIDTH*3);
+        int len = WIDTH*3;
+        leds = (struct CRGB*)malloc(len);
+        control = leds;
 
         pinMode(PIN_PWM_R, OUTPUT);     
         pinMode(PIN_PWM_G, OUTPUT);     
@@ -1026,13 +1055,13 @@ void setup()
 #endif 
         pinMode(PIN_LED,   OUTPUT);     
 
-        // init IR receiver
-	necIR.setup(PIN_IR_INT0);
+    // init IR receiver
+	// done in constructor now: necIR.setup(PIN_IR_INT0);
         
-	// strip is completely white initialy. fade to start color
+	// strip is completely white initially. fade to start color now:
 	//fadeIn();
-        Serial.println("D:SETUP_COMPLETE");
-        //Serial.println("D:INF_LOOP"); for (;;);                
+	Serial.println("D:SETUP_COMPLETE");
+	//Serial.println("D:INF_LOOP"); for (;;);
 }
 
 
@@ -1232,26 +1261,27 @@ void checkIRCommand()
 
 void performSimulation()
 {
-    checkSerialData(); // do frequent checks for serial data
-    next();  // compute new frame  
+	serialEvent(); // do frequent checks for serial data
+    next();  // compute new frame
     
-    checkSerialData();
+    serialEvent();
     visualize();     // compute RGB values from ripple data
     
-    checkSerialData();
+    serialEvent();
     show();
     
-    checkSerialData();
+    serialEvent();
     #ifdef WITH_UART_VALUES_OUTPUT
     output_uart(0);  // 0=silent, 1=only frame count, no delay, 2=values for simulation
     #endif
     
-    checkSerialData();
+
+    serialEvent();
     swap();          // swap src and dst buffer
     disturb(false);  // add some random disturbance to current frame
     frameCount++;
 
-    checkSerialData();
+    serialEvent();
 }
 
 
@@ -1262,7 +1292,7 @@ void blink()
 }
 
 
-void checkSerialData() 
+void serialEvent()
 {
   if (Serial.available())
   {
@@ -1299,11 +1329,12 @@ void loop()
 
     // handle IR commands
     #if 1
-    checkSerialData();
+    serialEvent();
     checkIRCommand();
     #endif
 
-    checkSerialData();
+    serialEvent();
+
     // do actual simulation and visualization
     if (preset.power>0)
     {
@@ -1317,17 +1348,17 @@ void loop()
       stripClear(0,0,0);
     }  
     
-    checkSerialData();
+    serialEvent();
 
     for (uint16_t i=0; i<preset.delayTime; i++)
     {
       delay(1);
-      checkSerialData();
+      serialEvent();
       checkSerialCommand();      
     }  
     
     // check at least once:
-    checkSerialCommand();      
+    checkSerialCommand();
     
     // if there were changes, save them after a while (after timeout expired)
     changeCheckSave();   
