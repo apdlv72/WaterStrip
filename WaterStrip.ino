@@ -6,8 +6,8 @@
   #endif
 #endif
 
-//#define STRIP_TYPE_6803
-#define STRIP_TYPE_RGB
+#define STRIP_TYPE_6803
+//#define STRIP_TYPE_RGB
 
 #define WITH_HELP
 #define WITH_UART_VALUES_OUTPUT
@@ -174,6 +174,7 @@ inline void toggle_pause();
 void stripClear(uint8_t r, uint8_t g, uint8_t b);
 void presetLoad(int n, struct preset_s * preset);
 void sendCurrent();
+void sendHello();
 /******* end of prototypes ********/
 
 
@@ -1062,6 +1063,8 @@ void setup()
 	//fadeIn();
 	Serial.println("D:SETUP_COMPLETE");
 	//Serial.println("D:INF_LOOP"); for (;;);
+
+	sendHello();
 }
 
 
