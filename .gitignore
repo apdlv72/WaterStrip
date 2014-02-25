@@ -1,7 +1,20 @@
-Makefile
-WaterStrip
-WaterStrip.o
-eeprom_data.bin 
-osx
+# Oxduino files
 
+Makefile
+osx
+WaterStrip
 eeprom_data.bin
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a

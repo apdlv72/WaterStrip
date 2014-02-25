@@ -11,7 +11,7 @@
 
 #define WITH_HELP
 #define WITH_UART_VALUES_OUTPUT
-//#define WITH_UART_PWM_OUTUT
+#define WITH_UART_PWM_OUTUT
 
 /*********************************************************************/
 
@@ -61,7 +61,6 @@ struct CRGB *leds;
   #define MODE_CONST     6 // constant color only, but brightness may be set by the user 
   #define MODE_RAINFLOW  7 // like RAINBOW2, ripple data used as color displacement
   #define MODE_RAINFLOW2 8 // like RAINBOW3, ripple data used as color displacement
-  #define MODE_MIN       0
   #define MODE_MAX       8
 #endif
 
@@ -115,8 +114,6 @@ int8_t * src = ripples1;
 int8_t * dst = ripples2;
 
 
-struct CRGB * control;
-
 typedef struct preset_s
 {
 	uint8_t mode; // the mode of operation: WATER, RAINBOW etc.
@@ -163,7 +160,7 @@ char    * inputEnd  = inputBuffer+sizeof(inputBuffer)-1;
 boolean   stringComplete = false;  // whether the string is complete
 
 // debug mode. 0=none, 1=normal, 2=verbose
-uint8_t D = 2;
+uint8_t D = 1;
 
 uint32_t old_pwm = 0;
 
@@ -1048,7 +1045,6 @@ void setup()
 #ifdef STRIP_TYPE_RGB        
         int len = WIDTH*3;
         leds = (struct CRGB*)malloc(len);
-        control = leds;
 
         pinMode(PIN_PWM_R, OUTPUT);     
         pinMode(PIN_PWM_G, OUTPUT);     
@@ -1278,7 +1274,6 @@ void performSimulation()
     output_uart(0);  // 0=silent, 1=only frame count, no delay, 2=values for simulation
     #endif
     
-
     serialEvent();
     swap();          // swap src and dst buffer
     disturb(false);  // add some random disturbance to current frame
